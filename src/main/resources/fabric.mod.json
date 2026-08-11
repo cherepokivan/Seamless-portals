@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "seamless-portals",
+  "version": "${version}",
+  "name": "Seamless Portals",
+  "description": "A visually realistic see-through Nether Portal client-side Fabric mod for Minecraft 26.2.",
+  "authors": [
+    "Seamless Portals Team"
+  ],
+  "contact": {
+    "homepage": "https://github.com/seamlessportals/seamless-portals",
+    "sources": "https://github.com/seamlessportals/seamless-portals"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.seamlessportals.client.SeamlessPortalsClient"
+    ]
+  },
+  "mixins": [
+    "seamless-portals.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": ">=26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

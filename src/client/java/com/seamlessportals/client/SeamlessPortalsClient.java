@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.seamlessportals.client.config.PortalConfig;
 import com.seamlessportals.client.portal.PortalManager;
 import com.seamlessportals.client.render.PortalRenderPipeline;
+import com.seamlessportals.client.render.PortalSurfaceRenderer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
@@ -27,6 +28,7 @@ public final class SeamlessPortalsClient implements ClientModInitializer {
     public void onInitializeClient() {
         portalManager = new PortalManager(CONFIG);
         renderPipeline = new PortalRenderPipeline(CONFIG, portalManager);
+        PortalSurfaceRenderer.register();
 
         KeyMapping.Category category = KeyMapping.Category.register(
             Identifier.fromNamespaceAndPath(MOD_ID, "general")

@@ -21,8 +21,8 @@ public final class PortalGeometry {
         this.maxPos = maxPos;
         this.axis = axis;
         this.width = axis == Direction.Axis.X
-            ? maxPos.getZ() - minPos.getZ() + 1
-            : maxPos.getX() - minPos.getX() + 1;
+            ? maxPos.getX() - minPos.getX() + 1
+            : maxPos.getZ() - minPos.getZ() + 1;
         this.height = maxPos.getY() - minPos.getY() + 1;
         this.boundingBox = new AABB(
             minPos.getX(), minPos.getY(), minPos.getZ(),
@@ -35,6 +35,6 @@ public final class PortalGeometry {
     }
 
     public Vec3 getNormal() {
-        return axis == Direction.Axis.X ? new Vec3(1.0D, 0.0D, 0.0D) : new Vec3(0.0D, 0.0D, 1.0D);
+        return axis == Direction.Axis.X ? new Vec3(0.0D, 0.0D, 1.0D) : new Vec3(1.0D, 0.0D, 0.0D);
     }
 }

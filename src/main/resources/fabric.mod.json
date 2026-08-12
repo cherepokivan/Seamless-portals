@@ -5,11 +5,12 @@
   "name": "Seamless Portals",
   "description": "A visually realistic see-through Nether Portal client-side Fabric mod for Minecraft 26.2.",
   "authors": [
-    "Seamless Portals Team"
+    "cherepokivan"
   ],
   "contact": {
-    "homepage": "https://github.com/seamlessportals/seamless-portals",
-    "sources": "https://github.com/seamlessportals/seamless-portals"
+    "homepage": "https://github.com/cherepokivan/Seamless-portals",
+    "sources": "https://github.com/cherepokivan/Seamless-portals",
+    "issues": "https://github.com/cherepokivan/Seamless-portals/issues"
   },
   "license": "MIT",
   "environment": "client",

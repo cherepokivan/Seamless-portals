@@ -41,6 +41,7 @@ public final class SeamlessPortalsPaper extends JavaPlugin implements Listener, 
     private static final int SNAPSHOT_REQUEST = 0x02;
     private static final int SNAPSHOT_PART = 0x10;
     private static final int STATUS = 0x11;
+    private static final int STATUS_READY = 0;
     private static final int STATUS_INVALID_PORTAL = 1;
     private static final int STATUS_DESTINATION_UNAVAILABLE = 2;
     private static final long REQUEST_COOLDOWN_MILLIS = 700L;
@@ -81,6 +82,7 @@ public final class SeamlessPortalsPaper extends JavaPlugin implements Listener, 
             }
             if (type == HELLO) {
                 enhancedPlayers.add(player.getUniqueId());
+                sendStatus(player, STATUS_READY);
                 return;
             }
             if (type == SNAPSHOT_REQUEST) {
@@ -99,9 +101,10 @@ public final class SeamlessPortalsPaper extends JavaPlugin implements Listener, 
     }
 
     private void handleSnapshotRequest(Player player, DataInputStream input) throws IOException {
-        if (!enhancedPlayers.contains(player.getUniqueId())) {
-            return;
-        }
+        // A client may join before the custom channel advertisement reaches
+        // Fabric. The request itself is fully validated below, so it is a
+        // safe implicit handshake and cannot be lost like a one-shot HELLO.
+        enhancedPlayers.add(player.getUniqueId());
         long now = System.currentTimeMillis();
         long lastRequest = lastRequestAt.getOrDefault(player.getUniqueId(), 0L);
         if (now - lastRequest < REQUEST_COOLDOWN_MILLIS) {

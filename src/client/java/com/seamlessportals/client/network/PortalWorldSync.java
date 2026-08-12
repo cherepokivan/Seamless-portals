@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.Identifier;
 
 import java.io.ByteArrayInputStream;
@@ -38,7 +39,10 @@ public final class PortalWorldSync {
     private static final Map<BlockPos, RemotePortalSnapshot> SNAPSHOTS = new HashMap<>();
     private static final Map<BlockPos, SnapshotAssembly> ASSEMBLIES = new HashMap<>();
     private static final Map<BlockPos, Long> LAST_REQUESTS = new HashMap<>();
+    private static final long HELLO_INTERVAL_MILLIS = 2_000L;
     private static boolean initialized;
+    private static long lastHelloAt;
+    private static volatile String diagnostic = "Waiting for Paper channel";
 
     private PortalWorldSync() {
     }
@@ -66,9 +70,15 @@ public final class PortalWorldSync {
         SNAPSHOTS.entrySet().removeIf(entry -> !entry.getValue().isFresh(now));
         LAST_REQUESTS.entrySet().removeIf(entry -> now - entry.getValue() > 30_000L);
 
-        if (!ClientPlayNetworking.canSend(PortalSyncPayload.TYPE)) {
+        if (!isConnected()) {
+            diagnostic = "Waiting for Paper connection";
             return;
         }
+        if (now - lastHelloAt >= HELLO_INTERVAL_MILLIS) {
+            lastHelloAt = now;
+            sendHello();
+        }
+        diagnostic = portals.isEmpty() ? "Paper channel ready; no nearby portal" : "Requesting live terrain";
         for (PortalData portal : portals) {
             BlockPos source = portal.pos.immutable();
             long lastRequest = LAST_REQUESTS.getOrDefault(source, 0L);
@@ -95,10 +105,16 @@ public final class PortalWorldSync {
         return getSnapshot(portal) != null;
     }
 
+    public static String diagnostic() {
+        return diagnostic;
+    }
+
     public static void reset() {
         SNAPSHOTS.clear();
         ASSEMBLIES.clear();
         LAST_REQUESTS.clear();
+        lastHelloAt = 0L;
+        diagnostic = "Waiting for Paper channel";
     }
 
     private static void accept(byte[] data) {
@@ -113,6 +129,8 @@ public final class PortalWorldSync {
             }
             if (type == SNAPSHOT_PART) {
                 readSnapshotPart(input);
+            } else if (type == STATUS && input.available() > 0) {
+                diagnostic = "Paper status " + input.readUnsignedByte();
             }
         } catch (IOException | IllegalArgumentException ignored) {
             // Invalid custom payloads are intentionally ignored. The server is
@@ -148,20 +166,31 @@ public final class PortalWorldSync {
         }
         assembly.add(partIndex, voxels);
         if (assembly.complete()) {
-            SNAPSHOTS.put(source, assembly.finish());
+            RemotePortalSnapshot snapshot = assembly.finish();
+            SNAPSHOTS.put(source, snapshot);
             ASSEMBLIES.remove(source);
+            diagnostic = "Live terrain active: " + snapshot.voxels().size() + " voxels";
+        } else {
+            diagnostic = "Receiving terrain " + (partIndex + 1) + "/" + partCount;
         }
     }
 
+    private static boolean isConnected() {
+        var handler = Minecraft.getInstance().getConnection();
+        return handler != null && handler.getConnection().isConnected();
+    }
+
     private static void send(IoWriter writer) {
-        if (!ClientPlayNetworking.canSend(PortalSyncPayload.TYPE)) {
+        if (!isConnected()) {
             return;
         }
         try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
              DataOutputStream output = new DataOutputStream(bytes)) {
             writer.write(output);
             output.flush();
-            ClientPlayNetworking.send(new PortalSyncPayload(bytes.toByteArray()));
+            Minecraft.getInstance().getConnection().getConnection().send(
+                new ServerboundCustomPayloadPacket(new PortalSyncPayload(bytes.toByteArray()))
+            );
         } catch (IOException ignored) {
             // ByteArrayOutputStream does not normally throw. Keep transport
             // failures isolated from the client rendering loop.

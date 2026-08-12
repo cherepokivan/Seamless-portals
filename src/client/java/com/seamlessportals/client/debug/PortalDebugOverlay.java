@@ -1,6 +1,7 @@
 package com.seamlessportals.client.debug;
 
 import com.seamlessportals.client.SeamlessPortalsClient;
+import com.seamlessportals.client.network.PortalWorldSync;
 import com.seamlessportals.client.portal.PortalData;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.phys.Vec3;
@@ -26,6 +27,7 @@ public final class PortalDebugOverlay {
         lines.add("Seamless Portals Debug");
         lines.add("Current dimension: " + client.level.dimension().identifier());
         lines.add("Visible portals: " + portals.size());
+        lines.add("Paper terrain: " + PortalWorldSync.diagnostic());
 
         Vec3 cameraPosition = client.gameRenderer.mainCamera().position();
         int count = 1;
@@ -33,6 +35,7 @@ public final class PortalDebugOverlay {
             lines.add("Portal #" + count++ + " -> " + portal.destination.dimension.identifier());
             lines.add("  position: " + portal.pos.toShortString() + ", axis: " + portal.axis);
             lines.add(String.format("  distance: %.2f", cameraPosition.distanceTo(portal.geometry.getCenter())));
+            lines.add("  live snapshot: " + (PortalWorldSync.hasSnapshot(portal) ? "active" : "waiting"));
         }
         return List.copyOf(lines);
     }

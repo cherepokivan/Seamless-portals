@@ -2,6 +2,7 @@ package com.seamlessportals.client.render;
 
 import com.mojang.blaze3d.PrimitiveTopology;
 import com.mojang.blaze3d.buffers.GpuBufferSlice;
+import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderPass;
@@ -34,16 +35,18 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 
 /**
- * Renders a visible animated surface over every detected vanilla Nether portal.
- *
- * <p>The implementation follows the extraction/drawing model introduced by
- * Minecraft 26.2. It never calls the removed WorldRenderer API directly.</p>
+ * Renders a depth-tested animated procedural Nether surface on detected portal
+ * interiors. It uses the extraction/drawing renderer of Minecraft 26.2 and
+ * therefore works without the legacy WorldRenderer API.
  */
 public final class PortalSurfaceRenderer {
     private static final RenderPipeline PORTAL_SURFACE = RenderPipelines.register(
         RenderPipeline.builder(RenderPipelines.DEBUG_FILLED_SNIPPET)
             .withLocation(Identifier.fromNamespaceAndPath(SeamlessPortalsClient.MOD_ID, "portal_surface"))
-            .withDepthStencilState(Optional.empty())
+            // DEFAULT performs the normal depth comparison, so opaque terrain
+            // blocks correctly hide a portal located behind them.
+            .withDepthStencilState(DepthStencilState.DEFAULT)
+            .withCull(false)
             .build()
     );
 
@@ -71,29 +74,12 @@ public final class PortalSurfaceRenderer {
             return;
         }
 
+        float time = (float) (System.nanoTime() / 1_000_000_000.0D);
         List<PortalRenderState> states = new ArrayList<>();
-        float pulse = (float) ((Math.sin(System.nanoTime() / 1_000_000_000.0D * 1.65D) + 1.0D) * 0.5D);
         for (PortalData portal : SeamlessPortalsClient.getPortalManager().getVisiblePortals()) {
-            float red;
-            float green;
-            float blue;
-            if (config.previewMode == PortalConfig.PreviewMode.MIRROR) {
-                red = 0.18F + 0.12F * pulse;
-                green = 0.62F + 0.18F * pulse;
-                blue = 0.92F;
-            } else {
-                // Nether palette: clearly distinct from vanilla purple portal texture.
-                red = 0.82F + 0.18F * pulse;
-                green = 0.16F + 0.10F * pulse;
-                blue = 0.03F + 0.08F * pulse;
-            }
-
             states.add(new PortalRenderState(
-                portal.geometry.getCenter(),
-                portal.geometry.width,
-                portal.geometry.height,
-                portal.axis,
-                red, green, blue, 0.94F
+                portal.geometry.getCenter(), portal.geometry.width, portal.geometry.height,
+                portal.axis, config.previewMode, time
             ));
         }
         INSTANCE.renderStates = List.copyOf(states);
@@ -112,8 +98,7 @@ public final class PortalSurfaceRenderer {
 
         PrimitiveTopology primitive = PORTAL_SURFACE.getPrimitiveTopology();
         StagedVertexBuffer.Draw draw = STAGED_BUFFER.appendDraw(
-            formatBinding,
-            primitive,
+            formatBinding, primitive,
             primitive == PrimitiveTopology.QUADS ? RenderSystem.getProjectionType().vertexSorting() : null
         );
 
@@ -125,47 +110,80 @@ public final class PortalSurfaceRenderer {
         VertexConsumer vertices = STAGED_BUFFER.getVertexBuilder(draw);
         Matrix4fc matrix = matrices.last().pose();
         for (PortalRenderState state : states) {
-            addPortalQuad(matrix, vertices, state);
+            renderNetherPattern(matrix, vertices, state);
         }
         matrices.popPose();
 
         STAGED_BUFFER.upload();
         StagedVertexBuffer.ExecuteInfo info = STAGED_BUFFER.getExecuteInfo(draw);
         if (info != null) {
-            execute(info, PORTAL_SURFACE);
+            execute(info);
         }
         STAGED_BUFFER.endFrame();
     }
 
-    private static void addPortalQuad(Matrix4fc matrix, VertexConsumer vertices, PortalRenderState state) {
+    /**
+     * Generates an animated lava-and-shadow pattern from geometry instead of a
+     * single color. It avoids external image assets, which also avoids mobile
+     * texture-upload issues in third-party launchers.
+     */
+    private static void renderNetherPattern(Matrix4fc matrix, VertexConsumer vertices, PortalRenderState state) {
+        int columns = Math.max(10, Math.round(state.width() * 8.0F));
+        int rows = Math.max(14, Math.round(state.height() * 8.0F));
         float halfWidth = state.width() * 0.5F;
         float halfHeight = state.height() * 0.5F;
-        float yMin = (float) state.center().y - halfHeight + 0.015F;
-        float yMax = (float) state.center().y + halfHeight - 0.015F;
-        float xMin = (float) state.center().x - halfWidth + 0.015F;
-        float xMax = (float) state.center().x + halfWidth - 0.015F;
-        float zMin = (float) state.center().z - halfWidth + 0.015F;
-        float zMax = (float) state.center().z + halfWidth - 0.015F;
+        float cellWidth = state.width() / columns;
+        float cellHeight = state.height() / rows;
 
-        if (state.axis() == net.minecraft.core.Direction.Axis.X) {
-            float z = (float) state.center().z;
-            quad(matrix, vertices, xMin, yMin, z, xMax, yMax, z, state);
-        } else {
-            float x = (float) state.center().x;
-            quad(matrix, vertices, x, yMin, zMin, x, yMax, zMax, state);
+        for (int row = 0; row < rows; row++) {
+            for (int column = 0; column < columns; column++) {
+                float u = (column + 0.5F) / columns;
+                float v = (row + 0.5F) / rows;
+                Color color = colorAt(u, v, state.time(), state.previewMode());
+
+                float horizontalMin = -halfWidth + column * cellWidth + 0.0025F;
+                float horizontalMax = horizontalMin + cellWidth - 0.005F;
+                float yMin = (float) state.center().y - halfHeight + row * cellHeight + 0.0025F;
+                float yMax = yMin + cellHeight - 0.005F;
+
+                if (state.axis() == net.minecraft.core.Direction.Axis.X) {
+                    float z = (float) state.center().z;
+                    float xMin = (float) state.center().x + horizontalMin;
+                    float xMax = (float) state.center().x + horizontalMax;
+                    quad(matrix, vertices, xMin, yMin, z, xMax, yMax, z, color);
+                } else {
+                    float x = (float) state.center().x;
+                    float zMin = (float) state.center().z + horizontalMin;
+                    float zMax = (float) state.center().z + horizontalMax;
+                    quad(matrix, vertices, x, yMin, zMin, x, yMax, zMax, color);
+                }
+            }
         }
+    }
+
+    private static Color colorAt(float u, float v, float time, PortalConfig.PreviewMode mode) {
+        float flowing = (float) (
+            Math.sin((u * 17.0F) + (time * 2.15F) + Math.sin(v * 9.0F - time * 0.8F) * 2.0F)
+                + Math.sin(v * 21.0F - time * 1.45F)
+        ) * 0.25F + 0.5F;
+        float vein = flowing * flowing;
+
+        if (mode == PortalConfig.PreviewMode.MIRROR) {
+            return new Color(0.03F + vein * 0.12F, 0.16F + vein * 0.40F, 0.28F + vein * 0.62F);
+        }
+        return new Color(0.09F + vein * 0.82F, 0.01F + vein * 0.24F, 0.006F + vein * 0.055F);
     }
 
     private static void quad(Matrix4fc matrix, VertexConsumer vertices,
                              float x1, float y1, float z1, float x2, float y2, float z2,
-                             PortalRenderState state) {
-        vertices.addVertex(matrix, x1, y1, z1).setColor(state.red(), state.green(), state.blue(), state.alpha());
-        vertices.addVertex(matrix, x2, y1, z2).setColor(state.red(), state.green(), state.blue(), state.alpha());
-        vertices.addVertex(matrix, x2, y2, z2).setColor(state.red(), state.green(), state.blue(), state.alpha());
-        vertices.addVertex(matrix, x1, y2, z1).setColor(state.red(), state.green(), state.blue(), state.alpha());
+                             Color color) {
+        vertices.addVertex(matrix, x1, y1, z1).setColor(color.red(), color.green(), color.blue(), 1.0F);
+        vertices.addVertex(matrix, x2, y1, z2).setColor(color.red(), color.green(), color.blue(), 1.0F);
+        vertices.addVertex(matrix, x2, y2, z2).setColor(color.red(), color.green(), color.blue(), 1.0F);
+        vertices.addVertex(matrix, x1, y2, z1).setColor(color.red(), color.green(), color.blue(), 1.0F);
     }
 
-    private static void execute(StagedVertexBuffer.ExecuteInfo info, RenderPipeline pipeline) {
+    private static void execute(StagedVertexBuffer.ExecuteInfo info) {
         Minecraft client = Minecraft.getInstance();
         GpuBufferSlice transforms = RenderSystem.getDynamicUniforms().writeTransform(
             RenderSystem.getModelViewMatrixCopy(), COLOR_MODULATOR, MODEL_OFFSET, TEXTURE_MATRIX
@@ -180,7 +198,7 @@ public final class PortalSurfaceRenderer {
             () -> "Seamless Portals portal surface", colorTexture, Optional.empty(),
             target.getDepthTextureView(), OptionalDouble.empty()
         )) {
-            pass.setPipeline(pipeline);
+            pass.setPipeline(PORTAL_SURFACE);
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("DynamicTransforms", transforms);
             pass.setVertexBuffer(0, info.vertexBuffer().slice());
@@ -195,8 +213,11 @@ public final class PortalSurfaceRenderer {
 
     private record PortalRenderState(
         Vec3 center, float width, float height, net.minecraft.core.Direction.Axis axis,
-        float red, float green, float blue, float alpha
+        PortalConfig.PreviewMode previewMode, float time
     ) {
+    }
+
+    private record Color(float red, float green, float blue) {
     }
 
     private static final PortalSurfaceRenderer INSTANCE = new PortalSurfaceRenderer();

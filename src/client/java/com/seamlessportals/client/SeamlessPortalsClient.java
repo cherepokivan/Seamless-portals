@@ -8,6 +8,7 @@ import com.seamlessportals.client.render.PortalSurfaceRenderer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.resources.Identifier;
 
@@ -30,6 +31,11 @@ public final class SeamlessPortalsClient implements ClientModInitializer {
         renderPipeline = new PortalRenderPipeline(CONFIG, portalManager);
         PortalSurfaceRenderer.register();
 
+        // A loaded world can replace the client Level after a rejoin or a
+        // dimension change. Do not retain portal geometry from the old world.
+        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> resetPortalState());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> resetPortalState());
+
         KeyMapping.Category category = KeyMapping.Category.register(
             Identifier.fromNamespaceAndPath(MOD_ID, "general")
         );
@@ -50,6 +56,11 @@ public final class SeamlessPortalsClient implements ClientModInitializer {
             portalManager.update(client);
             renderPipeline.tick(client, showDebug);
         });
+    }
+
+    private static void resetPortalState() {
+        portalManager.reset();
+        PortalSurfaceRenderer.clear();
     }
 
     public static PortalConfig getConfig() {

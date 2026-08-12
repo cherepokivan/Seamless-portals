@@ -37,6 +37,14 @@ public final class PortalManager {
             .toList();
     }
 
+    /**
+     * Removes portal data belonging to the previous world or dimension.
+     */
+    public void reset() {
+        detector.reset();
+        visiblePortals = List.of();
+    }
+
     public List<PortalData> getVisiblePortals() {
         return visiblePortals;
     }

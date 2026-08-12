@@ -207,7 +207,16 @@ public final class PortalSurfaceRenderer {
         }
     }
 
+    /**
+     * Drops geometry extracted for a previous world before its render pass can
+     * be reused after a connection or level transition.
+     */
+    public static void clear() {
+        INSTANCE.renderStates = List.of();
+    }
+
     public static void close() {
+        clear();
         STAGED_BUFFER.close();
     }
 

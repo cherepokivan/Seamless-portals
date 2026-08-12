@@ -29,8 +29,12 @@ public final class PortalData {
         return geometry.boundingBox;
     }
 
+    /**
+     * The renderer performs proper depth testing, so portal selection must not
+     * discard the back face based on the camera direction. Keeping all nearby
+     * portals here makes the effect symmetric on both sides of the frame.
+     */
     public boolean isVisible(Vec3 cameraPos, Vec3 lookVector) {
-        Vec3 toPortal = Vec3.atCenterOf(pos).subtract(cameraPos);
-        return toPortal.dot(lookVector) > -5.0D;
+        return true;
     }
 }

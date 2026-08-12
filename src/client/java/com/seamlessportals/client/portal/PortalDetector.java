@@ -16,14 +16,27 @@ import java.util.Set;
 
 /**
  * Client-side detector for loaded vanilla Nether portal blocks.
+ *
+ * <p>The detected list is tied to one concrete {@link Level} instance. Minecraft
+ * replaces that instance after a dimension transfer and when a saved world is
+ * re-entered, so the cache must never be reused for a different level.</p>
  */
 public final class PortalDetector {
     private final List<PortalData> activePortals = new ArrayList<>();
     private long lastScanTime;
+    private Level cachedLevel;
 
     public List<PortalData> getActivePortals(Minecraft client) {
         if (client.level == null || client.player == null) {
+            reset();
             return List.of();
+        }
+
+        if (client.level != cachedLevel) {
+            // Scan immediately on the first client tick of every loaded level.
+            activePortals.clear();
+            lastScanTime = 0L;
+            cachedLevel = client.level;
         }
 
         long currentTime = System.currentTimeMillis();
@@ -32,6 +45,15 @@ public final class PortalDetector {
             lastScanTime = currentTime;
         }
         return List.copyOf(activePortals);
+    }
+
+    /**
+     * Clears all state so a subsequent query will scan immediately.
+     */
+    public void reset() {
+        activePortals.clear();
+        lastScanTime = 0L;
+        cachedLevel = null;
     }
 
     private void scanNearby(Minecraft client) {

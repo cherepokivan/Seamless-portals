@@ -3,7 +3,8 @@ plugins {
     id 'maven-publish'
 }
 
-version = '1.0.0'
+// Keep plugin.yml and the Paper JAR aligned with the Fabric module version.
+version = rootProject.version
 group = 'com.seamlessportals.paper'
 
 repositories {

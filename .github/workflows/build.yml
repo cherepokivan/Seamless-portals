@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master, develop ]
 
+# Required only for the version commit made after a successful trusted push.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -13,6 +17,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up JDK 25
       uses: actions/setup-java@v4
@@ -23,11 +29,23 @@ jobs:
     - name: Validate Gradle wrapper
       uses: gradle/actions/setup-gradle@v3
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
+    - name: Grant execute permission for scripts
+      run: chmod +x gradlew scripts/bump_mod_version.sh
+
+    # Pull requests are intentionally built from their declared version and
+    # never modify the contributor's branch. Every direct main-branch build
+    # gets the next decimal version before compiling its artifacts.
+    - name: Calculate next main build version
+      id: version
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      run: |
+        NEXT_VERSION="$(./scripts/bump_mod_version.sh gradle.properties)"
+        echo "value=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+        echo "changed=true" >> "$GITHUB_OUTPUT"
+        echo "Building Seamless Portals version $NEXT_VERSION"
 
     - name: Build with Gradle
-      run: ./gradlew build
+      run: ./gradlew clean build --no-build-cache
 
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
@@ -36,3 +54,16 @@ jobs:
         path: |
           build/libs/*.jar
           seamless-portals-paper/build/libs/*.jar
+
+    # A failed build never updates the repository's version. The version in the
+    # two uploaded JARs is exactly the version committed by this step.
+    - name: Commit successful main build version
+      if: success() && steps.version.outputs.changed == 'true'
+      env:
+        NEXT_VERSION: ${{ steps.version.outputs.value }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add gradle.properties
+        git commit -m "chore(version): release $NEXT_VERSION [skip ci]"
+        git push origin HEAD:main

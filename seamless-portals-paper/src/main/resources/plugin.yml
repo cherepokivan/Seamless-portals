@@ -3,4 +3,4 @@ version: 1.0.0
 main: com.seamlessportals.paper.SeamlessPortalsPaper
 api-version: 1.21
 description: Optional server-side enhancement for Seamless Portals Fabric mod.
-authors: [Manus AI]
+authors: [cherepokivan]

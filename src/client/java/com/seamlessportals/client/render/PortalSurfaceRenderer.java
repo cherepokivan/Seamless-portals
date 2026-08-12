@@ -77,6 +77,9 @@ public final class PortalSurfaceRenderer {
         float time = (float) (System.nanoTime() / 1_000_000_000.0D);
         List<PortalRenderState> states = new ArrayList<>();
         for (PortalData portal : SeamlessPortalsClient.getPortalManager().getVisiblePortals()) {
+            if (RemotePortalRenderer.hasLiveTerrain(portal)) {
+                continue;
+            }
             states.add(new PortalRenderState(
                 portal.geometry.getCenter(), portal.geometry.width, portal.geometry.height,
                 portal.axis, config.previewMode, time

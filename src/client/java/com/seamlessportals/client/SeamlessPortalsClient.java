@@ -2,8 +2,10 @@ package com.seamlessportals.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import com.seamlessportals.client.config.PortalConfig;
+import com.seamlessportals.client.network.PortalWorldSync;
 import com.seamlessportals.client.portal.PortalManager;
 import com.seamlessportals.client.render.PortalRenderPipeline;
+import com.seamlessportals.client.render.RemotePortalRenderer;
 import com.seamlessportals.client.render.PortalSurfaceRenderer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -30,6 +32,8 @@ public final class SeamlessPortalsClient implements ClientModInitializer {
         portalManager = new PortalManager(CONFIG);
         renderPipeline = new PortalRenderPipeline(CONFIG, portalManager);
         PortalSurfaceRenderer.register();
+        RemotePortalRenderer.register();
+        PortalWorldSync.initialize();
 
         // A loaded world can replace the client Level after a rejoin or a
         // dimension change. Do not retain portal geometry from the old world.
@@ -54,6 +58,7 @@ public final class SeamlessPortalsClient implements ClientModInitializer {
                 showDebug = !showDebug;
             }
             portalManager.update(client);
+            PortalWorldSync.tick(portalManager.getVisiblePortals());
             renderPipeline.tick(client, showDebug);
         });
     }
@@ -61,6 +66,9 @@ public final class SeamlessPortalsClient implements ClientModInitializer {
     private static void resetPortalState() {
         portalManager.reset();
         PortalSurfaceRenderer.clear();
+        RemotePortalRenderer.clear();
+        PortalWorldSync.reset();
+        PortalWorldSync.sendHello();
     }
 
     public static PortalConfig getConfig() {

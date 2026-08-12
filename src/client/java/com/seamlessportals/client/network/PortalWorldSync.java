@@ -91,7 +91,9 @@ public final class PortalWorldSync {
         }
         boolean hasLiveTerrain = portals.stream().anyMatch(portal -> getSnapshot(portal) != null);
         if (!hasLiveTerrain) {
-            diagnostic = portals.isEmpty() ? "Paper channel ready; no nearby portal" : "Requesting live terrain";
+            diagnostic = portals.isEmpty()
+                ? "Network connected; Paper not yet confirmed; no nearby portal"
+                : "Requesting live terrain";
         }
         for (PortalData portal : portals) {
             BlockPos source = portal.pos.immutable();

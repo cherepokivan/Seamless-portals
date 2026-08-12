@@ -6,6 +6,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.Orientable;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -60,6 +61,10 @@ public final class SeamlessPortalsPaper extends JavaPlugin implements Listener, 
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getMessenger().registerOutgoingPluginChannel(this, CHANNEL);
         getServer().getMessenger().registerIncomingPluginChannel(this, CHANNEL, this);
+        // Paper pushes a validated nearby snapshot every second as well as
+        // answering requests. This makes the integration work with clients
+        // whose channel-registration timing differs from Fabric's default.
+        getServer().getScheduler().runTaskTimer(this, this::pushNearbySnapshots, 20L, 20L);
         getLogger().info("Seamless Portals live-terrain integration enabled.");
     }
 
@@ -100,6 +105,74 @@ public final class SeamlessPortalsPaper extends JavaPlugin implements Listener, 
         UUID playerId = event.getPlayer().getUniqueId();
         enhancedPlayers.remove(playerId);
         lastRequestAt.remove(playerId);
+    }
+
+    private void pushNearbySnapshots() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Block portal = findNearbyPortal(player);
+            if (portal == null) {
+                continue;
+            }
+            Destination destination = calculateDestination(
+                player.getWorld(), portal.getX(), portal.getY(), portal.getZ()
+            );
+            if (destination == null) {
+                continue;
+            }
+            Axis axis = portal.getBlockData() instanceof Orientable orientable ? orientable.getAxis() : Axis.X;
+            enhancedPlayers.add(player.getUniqueId());
+            sendStatus(player, STATUS_READY);
+            sendSnapshot(player, portal.getX(), portal.getY(), portal.getZ(), axis, destination);
+        }
+    }
+
+    private Block findNearbyPortal(Player player) {
+        World world = player.getWorld();
+        Location origin = player.getLocation();
+        int centerX = origin.getBlockX();
+        int centerY = origin.getBlockY();
+        int centerZ = origin.getBlockZ();
+        for (int y = -8; y <= 8; y++) {
+            for (int x = -20; x <= 20; x++) {
+                for (int z = -20; z <= 20; z++) {
+                    Block candidate = world.getBlockAt(centerX + x, centerY + y, centerZ + z);
+                    if (candidate.getType() == Material.NETHER_PORTAL) {
+                        return canonicalPortalBlock(candidate);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    private Block canonicalPortalBlock(Block start) {
+        Axis axis = start.getBlockData() instanceof Orientable orientable ? orientable.getAxis() : Axis.X;
+        List<Block> queue = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        queue.add(start);
+        Block minimum = start;
+        for (int index = 0; index < queue.size(); index++) {
+            Block current = queue.get(index);
+            String key = current.getX() + ":" + current.getY() + ":" + current.getZ();
+            if (!visited.add(key) || current.getType() != Material.NETHER_PORTAL) {
+                continue;
+            }
+            if (current.getY() < minimum.getY()
+                || (current.getY() == minimum.getY() && current.getX() < minimum.getX())
+                || (current.getY() == minimum.getY() && current.getX() == minimum.getX() && current.getZ() < minimum.getZ())) {
+                minimum = current;
+            }
+            queue.add(current.getRelative(BlockFace.UP));
+            queue.add(current.getRelative(BlockFace.DOWN));
+            if (axis == Axis.X) {
+                queue.add(current.getRelative(BlockFace.EAST));
+                queue.add(current.getRelative(BlockFace.WEST));
+            } else {
+                queue.add(current.getRelative(BlockFace.NORTH));
+                queue.add(current.getRelative(BlockFace.SOUTH));
+            }
+        }
+        return minimum;
     }
 
     private void handleSnapshotRequest(Player player, DataInputStream input) throws IOException {

@@ -35,7 +35,9 @@ import java.util.UUID;
  * client-selected world, target coordinate or radius.</p>
  */
 public final class SeamlessPortalsPaper extends JavaPlugin implements Listener, PluginMessageListener {
-    private static final String CHANNEL = "seamlessportals:sync";
+    // Must exactly match the Fabric CustomPacketPayload id:
+    // seamless-portals:sync (the mod id contains a hyphen).
+    private static final String CHANNEL = "seamless-portals:sync";
     private static final short PROTOCOL_VERSION = 1;
     private static final int HELLO = 0x01;
     private static final int SNAPSHOT_REQUEST = 0x02;

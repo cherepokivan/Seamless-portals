@@ -5,6 +5,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
@@ -18,8 +19,12 @@ public final class PortalData {
     public final PortalDestination destination;
 
     public PortalData(BlockPos pos, Direction.Axis axis, PortalGeometry geometry, PortalDestination destination) {
-        this.id = UUID.randomUUID();
-        this.pos = pos;
+        this.pos = pos.immutable();
+        // Detector refreshes its data every second. A random id here used to
+        // discard per-portal render state on every refresh, even for the same
+        // physical portal. Its minimum block and axis form a stable local key.
+        this.id = UUID.nameUUIDFromBytes((this.pos.asLong() + ":" + axis.getSerializedName())
+            .getBytes(StandardCharsets.UTF_8));
         this.axis = axis;
         this.geometry = geometry;
         this.destination = destination;

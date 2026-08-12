@@ -14,7 +14,7 @@ import java.util.List;
 public final class PortalManager {
     private final PortalDetector detector = new PortalDetector();
     private final PortalConfig config;
-    private List<PortalData> visiblePortals = List.of();
+    private volatile List<PortalData> visiblePortals = List.of();
 
     public PortalManager(PortalConfig config) {
         this.config = config;

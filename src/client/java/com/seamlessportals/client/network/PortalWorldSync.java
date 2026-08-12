@@ -1,10 +1,13 @@
 package com.seamlessportals.client.network;
 
+import com.seamlessportals.client.SeamlessPortalsClient;
+import com.seamlessportals.client.config.PortalConfig;
 import com.seamlessportals.client.portal.PortalData;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 import net.minecraft.resources.Identifier;
 
@@ -15,7 +18,7 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,13 +39,17 @@ public final class PortalWorldSync {
     private static final int MAX_PARTS = 32;
     private static final int MAX_VOXELS_PER_PART = 1_000;
 
-    private static final Map<BlockPos, RemotePortalSnapshot> SNAPSHOTS = new HashMap<>();
-    private static final Map<BlockPos, SnapshotAssembly> ASSEMBLIES = new HashMap<>();
-    private static final Map<BlockPos, Long> LAST_REQUESTS = new HashMap<>();
+    // Clientbound payloads may arrive while extraction is reading snapshots;
+    // concurrent maps keep this hand-off safe on Fabric's network pipeline.
+    private static final Map<BlockPos, RemotePortalSnapshot> SNAPSHOTS = new ConcurrentHashMap<>();
+    private static final Map<BlockPos, SnapshotAssembly> ASSEMBLIES = new ConcurrentHashMap<>();
+    private static final Map<BlockPos, Long> LAST_REQUESTS = new ConcurrentHashMap<>();
     private static final long HELLO_INTERVAL_MILLIS = 2_000L;
     private static boolean initialized;
     private static long lastHelloAt;
     private static volatile String diagnostic = "Waiting for Paper channel";
+    private static String lastAnnouncedDiagnostic = "";
+    private static volatile boolean paperReady;
 
     private PortalWorldSync() {
     }
@@ -66,6 +73,10 @@ public final class PortalWorldSync {
     }
 
     public static void tick(List<PortalData> portals) {
+        if (SeamlessPortalsClient.getConfig().serverIntegration == PortalConfig.IntegrationMode.PURE_CLIENT) {
+            diagnostic = "Enhanced terrain disabled by config";
+            return;
+        }
         long now = System.currentTimeMillis();
         SNAPSHOTS.entrySet().removeIf(entry -> !entry.getValue().isFresh(now));
         LAST_REQUESTS.entrySet().removeIf(entry -> now - entry.getValue() > 30_000L);
@@ -78,7 +89,10 @@ public final class PortalWorldSync {
             lastHelloAt = now;
             sendHello();
         }
-        diagnostic = portals.isEmpty() ? "Paper channel ready; no nearby portal" : "Requesting live terrain";
+        boolean hasLiveTerrain = portals.stream().anyMatch(portal -> getSnapshot(portal) != null);
+        if (!hasLiveTerrain) {
+            diagnostic = portals.isEmpty() ? "Paper channel ready; no nearby portal" : "Requesting live terrain";
+        }
         for (PortalData portal : portals) {
             BlockPos source = portal.pos.immutable();
             long lastRequest = LAST_REQUESTS.getOrDefault(source, 0L);
@@ -94,15 +108,34 @@ public final class PortalWorldSync {
                 out.writeInt(source.getZ());
             });
         }
+        announceDiagnosticIfChanged();
+    }
+
+    private static void announceDiagnosticIfChanged() {
+        if (diagnostic.equals(lastAnnouncedDiagnostic)) {
+            return;
+        }
+        Minecraft client = Minecraft.getInstance();
+        if (client.player != null) {
+            client.player.sendSystemMessage(Component.literal("[Seamless Portals] " + diagnostic));
+            lastAnnouncedDiagnostic = diagnostic;
+        }
     }
 
     public static RemotePortalSnapshot getSnapshot(PortalData portal) {
+        if (SeamlessPortalsClient.getConfig().serverIntegration == PortalConfig.IntegrationMode.PURE_CLIENT) {
+            return null;
+        }
         RemotePortalSnapshot snapshot = SNAPSHOTS.get(portal.pos);
         return snapshot != null && snapshot.isFresh(System.currentTimeMillis()) ? snapshot : null;
     }
 
     public static boolean hasSnapshot(PortalData portal) {
         return getSnapshot(portal) != null;
+    }
+
+    public static boolean isPaperReady() {
+        return paperReady;
     }
 
     public static String diagnostic() {
@@ -115,6 +148,8 @@ public final class PortalWorldSync {
         LAST_REQUESTS.clear();
         lastHelloAt = 0L;
         diagnostic = "Waiting for Paper channel";
+        lastAnnouncedDiagnostic = "";
+        paperReady = false;
     }
 
     private static void accept(byte[] data) {
@@ -130,11 +165,14 @@ public final class PortalWorldSync {
             if (type == SNAPSHOT_PART) {
                 readSnapshotPart(input);
             } else if (type == STATUS && input.available() > 0) {
-                diagnostic = "Paper status " + input.readUnsignedByte();
+                int status = input.readUnsignedByte();
+                paperReady = status == 0 || paperReady;
+                diagnostic = status == 0 ? "Paper channel confirmed" : "Paper status " + status;
             }
-        } catch (IOException | IllegalArgumentException ignored) {
-            // Invalid custom payloads are intentionally ignored. The server is
-            // queried again later, and malformed data must not break rendering.
+        } catch (IOException | IllegalArgumentException exception) {
+            // A status visible through the debug view makes packet/channel
+            // errors distinguishable from ordinary fallback rendering.
+            diagnostic = "Rejected Paper payload: " + exception.getClass().getSimpleName();
         }
     }
 
@@ -167,6 +205,7 @@ public final class PortalWorldSync {
         assembly.add(partIndex, voxels);
         if (assembly.complete()) {
             RemotePortalSnapshot snapshot = assembly.finish();
+            paperReady = true;
             SNAPSHOTS.put(source, snapshot);
             ASSEMBLIES.remove(source);
             diagnostic = "Live terrain active: " + snapshot.voxels().size() + " voxels";
@@ -191,9 +230,11 @@ public final class PortalWorldSync {
             Minecraft.getInstance().getConnection().getConnection().send(
                 new ServerboundCustomPayloadPacket(new PortalSyncPayload(bytes.toByteArray()))
             );
-        } catch (IOException ignored) {
-            // ByteArrayOutputStream does not normally throw. Keep transport
-            // failures isolated from the client rendering loop.
+        } catch (IOException | RuntimeException exception) {
+            // Keep transport failures isolated from the client render loop and
+            // surface the reason in diagnostics instead of silently falling
+            // back to the animated surface.
+            diagnostic = "Paper send failed: " + exception.getClass().getSimpleName();
         }
     }
 

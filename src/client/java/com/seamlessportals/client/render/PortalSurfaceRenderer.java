@@ -13,6 +13,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.seamlessportals.client.SeamlessPortalsClient;
 import com.seamlessportals.client.config.PortalConfig;
+import com.seamlessportals.client.network.PortalWorldSync;
 import com.seamlessportals.client.portal.PortalData;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelExtractionEvents;
@@ -77,7 +78,12 @@ public final class PortalSurfaceRenderer {
         float time = (float) (System.nanoTime() / 1_000_000_000.0D);
         List<PortalRenderState> states = new ArrayList<>();
         for (PortalData portal : SeamlessPortalsClient.getPortalManager().getVisiblePortals()) {
-            if (RemotePortalRenderer.hasLiveTerrain(portal)) {
+            // Once the Paper endpoint confirms the channel, never let the
+            // procedural grid cover the incoming live scene. A short blank
+            // state is preferable to falsely presenting fallback as terrain.
+            if (RemotePortalRenderer.hasLiveTerrain(portal)
+                || (config.serverIntegration != PortalConfig.IntegrationMode.PURE_CLIENT
+                && PortalWorldSync.isPaperReady())) {
                 continue;
             }
             states.add(new PortalRenderState(
